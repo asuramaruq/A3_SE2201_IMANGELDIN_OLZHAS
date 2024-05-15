@@ -3,37 +3,39 @@ package greenlight_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func printResponseBody(resp *http.Response) {
+func readResponseBody(resp *http.Response) string {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Fatalln(err)
 	}
 	sb := string(body)
-	log.Print(sb)
+	return sb
 }
 
-func printRequestBody(req *http.Request) {
-	body, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	sb := string(body)
-	log.Print(sb)
-
+type User struct {
+	ID        int    `json:"id"`
+	CreatedAt string `json:"created_at"`
+	Name      string `json:"name"`
+	Email     string `json:"email"`
+	Activated bool   `json:"activated"`
 }
 
-// Unit tests for the API
-func TestCreationNewAccount(t *testing.T) {
+var testToken string
+
+func TestAccountCreationRequest(t *testing.T) {
 	postBody, _ := json.Marshal(map[string]string{
-		"Name":     "Olzhas",
-		"Email":    "example@test.com",
-		"Password": "password123",
+		"Name":     "test3211",
+		"Email":    "test3211@gmail.com",
+		"Password": "test321321",
 	})
 	responseBody := bytes.NewBuffer(postBody)
 
@@ -42,15 +44,43 @@ func TestCreationNewAccount(t *testing.T) {
 	if err != nil {
 		log.Fatalf("An Error Occured %v", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
 
-	printResponseBody(resp)
+		}
+	}(resp.Body)
+
+	var response struct {
+		User User `json:"user"`
+	}
+
+	str := readResponseBody(resp)
+
+	if err := json.Unmarshal([]byte(str), &response); err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	if err := json.Unmarshal([]byte(str), &response); err != nil {
+		fmt.Println("Error:", err)
+		assert.Fail(t, "Error due Response Unmarshall")
+		return
+	}
+	assert.Positive(t, response.User.ID)
+	assert.Equal(t, "test3211", response.User.Name)
+	assert.Equal(t, "test3211@gmail.com", response.User.Email)
 }
 
-func TestCreationNewAccount2(t *testing.T) {
+type ErrorIncorrectAccountCreationRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+func TestIncorrectAccountCreationRequest(t *testing.T) {
 	postBody, _ := json.Marshal(map[string]string{
-		"Name":     "Olzhas",
-		"Email":    "asdfasdf",
+		"Name":     "asdfj",
+		"Email":    "asdfjk",
 		"Password": ""})
 	responseBody := bytes.NewBuffer(postBody)
 
@@ -59,14 +89,69 @@ func TestCreationNewAccount2(t *testing.T) {
 	if err != nil {
 		log.Fatalf("An Error Occured %v", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
 
-	printResponseBody(resp)
+		}
+	}(resp.Body)
+
+	var response struct {
+		Error ErrorIncorrectAccountCreationRequest `json:"error"`
+	}
+
+	str := readResponseBody(resp)
+
+	if err := json.Unmarshal([]byte(str), &response); err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+	assert.Equal(t, "must be provided", response.Error.Password)
+	assert.Equal(t, "must be valid email address", response.Error.Email)
 }
 
-func TestGettingAuthenticationToken(t *testing.T) {
+type TokenForTestLogin struct {
+	Token  string `json:"token"`
+	Expiry string `json:"expiry"`
+}
+
+func TestLogin(t *testing.T) {
 	postBody, _ := json.Marshal(map[string]string{
-		"Email":    "example@test.com",
+		"Email":    "test3211@gmail.com",
+		"Password": "test321321",
+	})
+	responseBody := bytes.NewBuffer(postBody)
+
+	resp, err := http.Post("http://localhost:4000/v1/tokens/authentication", "application/json", responseBody)
+
+	if err != nil {
+		log.Fatalf("An Error Occured %v", err)
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(resp.Body)
+
+	var response struct {
+		Token TokenForTestLogin `json:"authentication_token"`
+	}
+
+	str := readResponseBody(resp)
+
+	if err := json.Unmarshal([]byte(str), &response); err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+	testToken = response.Token.Token
+	assert.NotNil(t, response.Token.Token)
+	assert.NotNil(t, response.Token.Expiry)
+}
+
+func TestIncorrectLogin(t *testing.T) {
+	postBody, _ := json.Marshal(map[string]string{
+		"Email":    "aksldf@gmail.com", // This email does not exist
 		"Password": "password123",
 	})
 	responseBody := bytes.NewBuffer(postBody)
@@ -76,63 +161,105 @@ func TestGettingAuthenticationToken(t *testing.T) {
 	if err != nil {
 		log.Fatalf("An Error Occured %v", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
 
-	printResponseBody(resp)
+		}
+	}(resp.Body)
+
+	var response struct {
+		Error string `json:"error"`
+	}
+
+	str := readResponseBody(resp)
+
+	if err := json.Unmarshal([]byte(str), &response); err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+	assert.Equal(t, "invalid authentication credentials", response.Error)
 }
 
-func TestGettingAuthenticationToken2(t *testing.T) {
+func TestValidToken(t *testing.T) {
 	postBody, _ := json.Marshal(map[string]string{
-		"Email":    "fakeexample@test.com", // This email does not exist
-		"Password": "password123",
+		"Token": "NY5A4Z7K256WVXYR57HLFE3ZEM", // ACTIVATION TOKEN
 	})
 	responseBody := bytes.NewBuffer(postBody)
 
-	resp, err := http.Post("http://localhost:4000/v1/tokens/authentication", "application/json", responseBody)
+	client := &http.Client{}
 
+	req, err := http.NewRequest(http.MethodPut, "http://localhost:4000/v1/users/activated", responseBody)
 	if err != nil {
-		log.Fatalf("An Error Occured %v", err)
+		log.Fatalf("An Error Occurred while creating request: %v", err)
 	}
-	defer resp.Body.Close()
 
-	printResponseBody(resp)
+	// Send request
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatalf("An Error Occurred while sending request: %v", err)
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(resp.Body)
+
+	str := readResponseBody(resp)
+
+	var response struct {
+		Error struct {
+			Token string `json:"token"`
+		} `json:"error"`
+	}
+
+	if err := json.Unmarshal([]byte(str), &response); err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+	assert.Equal(t, "invalid or expired activation token", response.Error.Token)
 }
 
-//ATTENTION FOR THE LAST 2 TESTS RUN THE TESTS IN ORDER
-
-func TestActivationAccount(t *testing.T) {
+func TestInvalidToken(t *testing.T) {
 	postBody, _ := json.Marshal(map[string]string{
-		"Token": "MQJNOQ3BTN6MHBENQBRROMA2FY", // ACTIVATION TOKEN
+		"Token": "aaaaaaaaaaaaaaaaaaaaaaaaaa", // INVALID ACTIVATION TOKEN
 	})
 	responseBody := bytes.NewBuffer(postBody)
 
-	resp, err := http.NewRequest(http.MethodPost, "http://localhost:4000/v1/users/activated", responseBody)
+	client := &http.Client{}
 
+	req, err := http.NewRequest(http.MethodPut, "http://localhost:4000/v1/users/activated", responseBody)
 	if err != nil {
-		log.Fatalf("An Error Occured %v", err)
+		log.Fatalf("An Error Occurred while creating request: %v", err)
 	}
-	defer resp.Body.Close()
 
-	printRequestBody(resp)
-}
-
-func TestActivationAccount2(t *testing.T) {
-	postBody, _ := json.Marshal(map[string]string{
-		"Token": "NOT A VALID TOKEN", // ACTIVATION TOKEN
-	})
-	responseBody := bytes.NewBuffer(postBody)
-
-	resp, err := http.NewRequest(http.MethodPost, "http://localhost:4000/v1/users/activated", responseBody)
-
+	// Send request
+	resp, err := client.Do(req)
 	if err != nil {
-		log.Fatalf("An Error Occured %v", err)
+		log.Fatalf("An Error Occurred while sending request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
 
-	printRequestBody(resp)
+		}
+	}(resp.Body)
+
+	str := readResponseBody(resp)
+
+	var response struct {
+		Error struct {
+			Token string `json:"token"`
+		} `json:"error"`
+	}
+
+	if err := json.Unmarshal([]byte(str), &response); err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+	assert.Equal(t, "invalid or expired activation token", response.Error.Token)
 }
-
-//Integration tests for the API
 
 type Movie struct {
 	Title   string   `json:"title"`
@@ -141,75 +268,11 @@ type Movie struct {
 	Genres  []string `json:"genres"`
 }
 
-func TestInsertMovie(t *testing.T) {
+func TestInsertingMoviesIntoDatabase(t *testing.T) {
 	moviePayload := Movie{
-		Title:   "Fight Club",
-		Year:    1999,
-		Runtime: "139 mins",
-		Genres:  []string{"drama"},
-	}
-
-	payloadBytes, err := json.Marshal(moviePayload)
-	if err != nil {
-		log.Fatalf("Error marshaling movie payload: %v", err)
-	}
-
-	req, err := http.NewRequest("POST", "http://localhost:4000/v1/movies", bytes.NewBuffer(payloadBytes))
-	if err != nil {
-		log.Fatalf("Error creating HTTP request: %v", err)
-	}
-
-	bearerToken := "YXJXRFN44TZTZJ4OES3BVCR2RQ"
-	req.Header.Set("Authorization", "Bearer "+bearerToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Fatalf("Error sending HTTP request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	printResponseBody(resp)
-}
-
-func TestInsertMovieWithWrongYear(t *testing.T) {
-	moviePayload := Movie{
-		Title:   "Fight Club",
-		Year:    2000, // This is a future date
-		Runtime: "139 mins",
-		Genres:  []string{"drama"},
-	}
-
-	payloadBytes, err := json.Marshal(moviePayload)
-	if err != nil {
-		log.Fatalf("Error marshaling movie payload: %v", err)
-	}
-
-	req, err := http.NewRequest("POST", "http://localhost:4000/v1/movies", bytes.NewBuffer(payloadBytes))
-	if err != nil {
-		log.Fatalf("Error creating HTTP request: %v", err)
-	}
-
-	bearerToken := "YXJXRFN44TZTZJ4OES3BVCR2RQ"
-	req.Header.Set("Authorization", "Bearer "+bearerToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Fatalf("Error sending HTTP request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	printResponseBody(resp)
-}
-
-func TestInsertMovieWithWrongRuntime(t *testing.T) {
-	moviePayload := Movie{
-		Title:   "Fight Club",
-		Year:    2020,
-		Runtime: "139", // This is not a valid runtime
+		Title:   "Inception",
+		Year:    2010,
+		Runtime: "144 mins",
 		Genres:  []string{"thriller"},
 	}
 
@@ -223,7 +286,7 @@ func TestInsertMovieWithWrongRuntime(t *testing.T) {
 		log.Fatalf("Error creating HTTP request: %v", err)
 	}
 
-	bearerToken := "YXJXRFN44TZTZJ4OES3BVCR2RQ"
+	bearerToken := "NY5A4Z7K256WVXYR57HLFE3ZEM"
 	req.Header.Set("Authorization", "Bearer "+bearerToken)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -232,18 +295,35 @@ func TestInsertMovieWithWrongRuntime(t *testing.T) {
 	if err != nil {
 		log.Fatalf("Error sending HTTP request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
 
-	printResponseBody(resp)
+		}
+	}(resp.Body)
+
+	readResponseBody(resp)
 }
 
-func TestMovieDeletionById(t *testing.T) {
-	req, err := http.NewRequest("DELETE", "http://localhost:4000/v1/movies/3", nil)
+func TestInsertingMoviesIntoDatabaseWithWrongYear(t *testing.T) {
+	moviePayload := Movie{
+		Title:   "Inception",
+		Year:    2029, // This is a future date
+		Runtime: "144 mins",
+		Genres:  []string{"thriller"},
+	}
+
+	payloadBytes, err := json.Marshal(moviePayload)
+	if err != nil {
+		log.Fatalf("Error marshaling movie payload: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", "http://localhost:4000/v1/movies", bytes.NewBuffer(payloadBytes))
 	if err != nil {
 		log.Fatalf("Error creating HTTP request: %v", err)
 	}
 
-	bearerToken := "YXJXRFN44TZTZJ4OES3BVCR2RQ"
+	bearerToken := "NY5A4Z7K256WVXYR57HLFE3ZEM"
 	req.Header.Set("Authorization", "Bearer "+bearerToken)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -252,7 +332,74 @@ func TestMovieDeletionById(t *testing.T) {
 	if err != nil {
 		log.Fatalf("Error sending HTTP request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
 
-	printResponseBody(resp)
+		}
+	}(resp.Body)
+
+	readResponseBody(resp)
+}
+
+func TestInsertingMoviesIntoDatabaseWithWrongRuntime(t *testing.T) {
+	moviePayload := Movie{
+		Title:   "Inception",
+		Year:    2020,
+		Runtime: "144", // This is not a valid runtime
+		Genres:  []string{"thriller"},
+	}
+
+	payloadBytes, err := json.Marshal(moviePayload)
+	if err != nil {
+		log.Fatalf("Error marshaling movie payload: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", "http://localhost:4000/v1/movies", bytes.NewBuffer(payloadBytes))
+	if err != nil {
+		log.Fatalf("Error creating HTTP request: %v", err)
+	}
+
+	bearerToken := "NY5A4Z7K256WVXYR57HLFE3ZEM"
+	req.Header.Set("Authorization", "Bearer "+bearerToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatalf("Error sending HTTP request: %v", err)
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(resp.Body)
+
+	readResponseBody(resp)
+}
+
+func TestMovieDeletionById(t *testing.T) {
+	req, err := http.NewRequest("DELETE", "http://localhost:4000/v1/movies/5", nil)
+	if err != nil {
+		log.Fatalf("Error creating HTTP request: %v", err)
+	}
+
+	bearerToken := "NY5A4Z7K256WVXYR57HLFE3ZEM"
+	req.Header.Set("Authorization", "Bearer "+bearerToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatalf("Error sending HTTP request: %v", err)
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(resp.Body)
+
+	readResponseBody(resp)
 }
